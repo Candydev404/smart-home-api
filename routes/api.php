@@ -5,3 +5,4 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('/light/toggle', [DeviceController::class, 'toggle']);
 Route::get('/light/status', [DeviceController::class, 'status']);
+Route::get('/budget/current', [DeviceController::class, 'getBudget']);
