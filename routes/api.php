@@ -10,3 +10,4 @@ Route::get('/budget/current', [DeviceController::class, 'getBudget']);
 Route::get('/schedules', [ScheduleController::class, 'index']);
 Route::post('/schedules', [ScheduleController::class, 'store']);
 Route::delete('/schedules/{id}', [ScheduleController::class, 'destroy']);
+Route::get('/schedules/trigger', [ScheduleController::class, 'trigger']);
