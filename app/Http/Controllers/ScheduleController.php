@@ -38,59 +38,79 @@ class ScheduleController extends Controller
         return response()->json(['message' => 'Schedule removed']);
     }
 
-    // --- NEW: The Automated Webhook Trigger ---
+    // --- UPGRADED: Automated Trigger with X-Ray Diagnostics ---
     public function trigger()
     {
-        // Get the current time (e.g., "14:30")
         $now = now()->format('H:i');
         
-        // Find any active schedules matching this exact minute
-        $schedules = Schedule::where('is_active', true)
-                             ->where('scheduled_time', 'like', $now . '%')
-                             ->get();
+        // Grab ALL active schedules so we can see what the server sees
+        $schedules = Schedule::where('is_active', true)->get();
 
         $executedCount = 0;
+        $debugLogs = [];
 
         foreach ($schedules as $schedule) {
-            // Grab our main device
             $device = \App\Models\Device::find(1);
             if (!$device) continue;
 
+            // Bulletproof time matching (forces "01:42:00" to become "01:42")
+            $dbTime = substr($schedule->scheduled_time, 0, 5);
+            $timeMatches = ($dbTime === $now);
+            
             $targetState = ($schedule->action === 'on');
+            
+            // Build the X-Ray log
+            $log = [
+                'saved_alarm_time' => $dbTime,
+                'server_clock_now' => $now,
+                'time_matches' => $timeMatches,
+                'light_already_in_state' => ($device->is_on === $targetState),
+                'action_taken' => 'none'
+            ];
 
-            // Only flip the switch if it actually needs to change
-            if ($device->is_on !== $targetState) {
-                $device->is_on = $targetState;
-                $device->save();
+            if ($timeMatches) {
+                // Only flip if the light isn't ALREADY in the target state
+                if ($device->is_on !== $targetState) {
+                    
+                    $device->is_on = $targetState;
+                    $device->save();
 
-                // Run the Smart Meter Logging
-                if ($device->is_on) {
-                    \App\Models\EnergyLog::create([
-                        'appliance_name' => $device->name,
-                        'wattage' => 15,
-                        'turned_on_at' => now(),
-                    ]);
-                } else {
-                    $log = \App\Models\EnergyLog::where('appliance_name', $device->name)
-                                    ->whereNull('turned_off_at')
-                                    ->latest()
-                                    ->first();
-                    if ($log) {
-                        $log->turned_off_at = now();
-                        $hours = $log->turned_on_at->diffInMinutes(now()) / 60;
-                        $log->total_kwh = (15 * $hours) / 1000;
-                        $log->save();
+                    // --- Smart Meter Math ---
+                    if ($device->is_on) {
+                        \App\Models\EnergyLog::create([
+                            'appliance_name' => $device->name,
+                            'wattage' => 15,
+                            'turned_on_at' => now(),
+                        ]);
+                    } else {
+                        $energy = \App\Models\EnergyLog::where('appliance_name', $device->name)
+                                        ->whereNull('turned_off_at')
+                                        ->latest()->first();
+                        if ($energy) {
+                            $energy->turned_off_at = now();
+                            $hours = $energy->turned_on_at->diffInMinutes(now()) / 60;
+                            $energy->total_kwh = (15 * $hours) / 1000;
+                            $energy->save();
+                        }
                     }
+                    // ------------------------
+
+                    $log['action_taken'] = "SUCCESS: Switched light " . strtoupper($schedule->action);
+                    $executedCount++;
+                } else {
+                    $log['action_taken'] = "SKIPPED: Light was already " . strtoupper($schedule->action);
                 }
-                $executedCount++;
+            } else {
+                $log['action_taken'] = "IGNORED: Not the right time yet";
             }
+            
+            $debugLogs[] = $log;
         }
 
         return response()->json([
             'status' => 'success',
-            'time_checked' => $now,
-            'actions_executed' => $executedCount
+            'actions_executed' => $executedCount,
+            'x_ray_vision' => $debugLogs
         ]);
     }
-}    
-            
+}
