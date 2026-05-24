@@ -18,13 +18,15 @@ class ScheduleController extends Controller
     {
         $request->validate([
             'action' => 'required|in:on,off',
-            'scheduled_time' => 'required|date_format:H:i',
+            'scheduled_time' => 'required',
         ]);
+
+        $cleanTime = substr($request->scheduled_time, 0, 5);
 
         $schedule = Schedule::create([
             'device_name' => 'Main Room Light',
             'action' => $request->action,
-            'scheduled_time' => $request->scheduled_time,
+            'scheduled_time' => $cleanTime,
             'is_active' => true,
         ]);
 
